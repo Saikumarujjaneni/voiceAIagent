@@ -1,0 +1,48 @@
+flowchart TB
+  subgraph Client["Browser / Telephony"]
+    MIC[Microphone]
+    STT[Web Speech STT]
+    TTS[Speech Synthesis TTS]
+    UI[Demo UI + Barge-in]
+  end
+
+  subgraph VoiceGW["voice-gateway TypeScript"]
+    WS[WebSocket Server]
+    LAT[Latency Instrumentation]
+  end
+
+  subgraph Backend["backend Python FastAPI"]
+    API[REST /api/v1]
+    ORCH[Agent Orchestrator]
+    TOOLS[Tool Executor]
+    SCHED[Scheduling Service]
+    MEM_S[(Session Redis TTL)]
+    MEM_P[(Patient Redis TTL)]
+    DB[(SQLite)]
+    Q[Campaign Queue]
+  end
+
+  subgraph External["External APIs"]
+    LLM[OpenAI-compatible LLM]
+  end
+
+  MIC --> STT
+  STT -->|final transcript + speech_end_ms| WS
+  UI --> WS
+  WS --> LAT
+  LAT -->|POST /agent/turn| API
+  API --> ORCH
+  ORCH --> LLM
+  ORCH --> TOOLS
+  TOOLS --> SCHED
+  SCHED --> DB
+  ORCH --> MEM_S
+  ORCH --> MEM_P
+  MEM_P --> DB
+  API --> Q
+  ORCH -->|reply + trace| WS
+  WS --> TTS
+  TTS --> MIC
+
+  classDef hot fill:#2d6cdf,color:#fff
+  class WS,ORCH,LAT hot

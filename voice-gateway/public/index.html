@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Clinical Voice Agent — Live Demo</title>
+  <style>
+    :root {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: #0b1118;
+      color: #e8eef5;
+      --accent: #2d6cdf;
+      --accent-hot: #e74c3c;
+      --panel: #151d28;
+      --border: #2a3848;
+    }
+    * { box-sizing: border-box; }
+    body { max-width: 920px; margin: 0 auto; padding: 1.25rem; }
+    header { border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1rem; }
+    h1 { font-size: 1.35rem; margin: 0 0 .5rem; }
+    .status-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+    .badge { padding: .25rem .65rem; border-radius: 999px; font-size: .78rem; font-weight: 600; }
+    .ok { background: #1a4d36; color: #b8f0d0; }
+    .warn { background: #5c4a18; color: #ffe9a8; }
+    .err { background: #5c1e24; color: #ffc8d0; }
+    .info { background: #1a3050; color: #a8d4ff; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+    .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+    label { font-size: .82rem; color: #9ab0c4; display: flex; flex-direction: column; gap: .25rem; }
+    input, select { padding: .45rem .6rem; border-radius: 6px; border: 1px solid var(--border); background: #0f1620; color: inherit; min-width: 140px; }
+    button {
+      padding: .55rem .9rem; border-radius: 8px; border: 1px solid var(--border);
+      background: #1e2a38; color: inherit; cursor: pointer; font-weight: 600;
+    }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    #btnMic {
+      min-width: 160px; background: var(--accent); border-color: var(--accent);
+      font-size: 1rem;
+    }
+    #btnMic.listening { background: var(--accent-hot); border-color: var(--accent-hot); animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: .85; } }
+    #liveText { min-height: 2rem; color: #8ec8ff; font-style: italic; margin: .5rem 0; }
+    #transcript {
+      min-height: 140px; max-height: 220px; overflow-y: auto;
+      font-size: .92rem; line-height: 1.45;
+    }
+    .turn-user { color: #7ec8ff; }
+    .turn-agent { color: #b8f5c8; }
+    .turn-sys { color: #c9b896; font-size: .85rem; }
+    details { margin-top: .75rem; }
+    summary { cursor: pointer; color: #9ab0c4; font-size: .9rem; }
+    pre {
+      background: #0a1018; padding: .75rem; border-radius: 6px;
+      overflow: auto; font-size: .78rem; max-height: 200px;
+    }
+    .hint { font-size: .82rem; color: #7a92a8; margin: .35rem 0; }
+    .voice-ring {
+      width: 72px; height: 72px; border-radius: 50%;
+      border: 3px solid var(--border); display: flex; align-items: center; justify-content: center;
+      font-size: 1.8rem; margin-right: .75rem; flex-shrink: 0;
+    }
+    .voice-ring.active { border-color: var(--accent-hot); box-shadow: 0 0 20px #e74c3c55; }
+    .voice-box { display: flex; align-items: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Clinical Voice Agent — Live Demo</h1>
+    <div class="status-row">
+      <span id="connStatus" class="badge warn">Connecting…</span>
+      <span id="agentMode" class="badge info">Agent: —</span>
+      <span id="latBadge" class="badge"></span>
+    </div>
+    <p id="backendStatus" class="hint"></p>
+    <p class="hint">Assignment demo: voice + text · EN / HI / TA · booking · outbound · traces · latency (target 450ms e2e)</p>
+  </header>
+
+  <section class="card">
+    <div class="row">
+      <label>Patient ID <input id="patientId" value="patient-demo-1" /></label>
+      <label>Name <input id="patientName" value="Ravi Kumar" /></label>
+      <label>Language
+        <select id="langPref">
+          <option value="en">English</option>
+          <option value="hi">Hindi</option>
+          <option value="ta">Tamil</option>
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="voice-box">
+      <div id="voiceRing" class="voice-ring">🎤</div>
+      <div style="flex:1">
+        <div class="row">
+          <button id="btnMic" disabled title="Click once to start, click again to stop">🎤 Tap to speak</button>
+          <button id="btnBargeIn" disabled>Interrupt</button>
+          <button id="btnOutbound" disabled>Outbound call</button>
+        </div>
+        <p id="micHint" class="hint"></p>
+        <div id="liveText"></div>
+        <input id="textInput" style="width:100%;margin-top:.5rem" placeholder="Type: Book Dr Sharma tomorrow at 10am" disabled />
+        <div class="row" style="margin-top:.5rem">
+          <button id="btnText" disabled>Send text</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3 style="margin:0 0 .5rem;font-size:1rem">Conversation</h3>
+    <div id="transcript"></div>
+    <details>
+      <summary>Latency breakdown (assignment metric)</summary>
+      <pre id="latency">—</pre>
+    </details>
+    <details open>
+      <summary>Reasoning trace (tool calls — assignment requirement)</summary>
+      <pre id="trace">—</pre>
+    </details>
+  </section>
+
+  <script>
+    function newSessionId() {
+      return (crypto && crypto.randomUUID) ? crypto.randomUUID() : 'sess-' + Math.random().toString(36).slice(2);
+    }
+
+    const WS_URL = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host;
+    let ws = null, sessionId = newSessionId(), connected = false, reconnectTimer = null;
+    let listenStartMs = 0, activeTurn = null, wantMicOn = false, micSupported = false;
+
+    const $ = (id) => document.getElementById(id);
+    const transcript = $('transcript');
+    const traceEl = $('trace');
+    const latEl = $('latency');
+    const latBadge = $('latBadge');
+    const connStatus = $('connStatus');
+    const agentMode = $('agentMode');
+    const backendStatus = $('backendStatus');
+    const micHint = $('micHint');
+    const btnMic = $('btnMic');
+    const liveText = $('liveText');
+    const voiceRing = $('voiceRing');
+
+    function log(role, text) {
+      const div = document.createElement('div');
+      div.className = role === 'you' ? 'turn-user' : role === 'agent' ? 'turn-agent' : 'turn-sys';
+      div.textContent = (role === 'you' ? 'You: ' : role === 'agent' ? 'Agent: ' : '') + text;
+      transcript.appendChild(div);
+      transcript.scrollTop = transcript.scrollHeight;
+    }
+
+    function setUiEnabled(on) {
+      ['btnMic', 'btnBargeIn', 'btnOutbound', 'btnText', 'textInput'].forEach(id => { $(id).disabled = !on; });
+    }
+
+    function setMicUi(on) {
+      wantMicOn = on;
+      btnMic.classList.toggle('listening', on);
+      voiceRing.classList.toggle('active', on);
+      btnMic.textContent = on ? '⏹ Stop & send' : '🎤 Tap to speak';
+    }
+
+    function sendWs(payload) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        log('sys', 'Not connected — run: npm run dev && npm run backend');
+        return false;
+      }
+      ws.send(JSON.stringify(payload));
+      return true;
+    }
+
+    async function checkBackend() {
+      try {
+        const h = await fetch('/health').then(r => r.json());
+        backendStatus.textContent = h.backend_ok
+          ? '✓ Backend ' + h.backend
+          : '✗ Backend down — run: npm run backend';
+        backendStatus.style.color = h.backend_ok ? '#6d8' : '#e88';
+      } catch {
+        backendStatus.textContent = 'Cannot reach /health';
+      }
+    }
+
+    function connect() {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+      connStatus.textContent = 'Connecting…';
+      connStatus.className = 'badge warn';
+      setUiEnabled(false);
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        connected = true;
+        connStatus.textContent = 'Connected';
+        connStatus.className = 'badge ok';
+        setUiEnabled(true);
+        sendWs({
+          type: 'init',
+          session_id: sessionId,
+          patient_id: $('patientId').value,
+          patient_name: $('patientName').value,
+          phone: '9876543210',
+          language: $('langPref').value,
+        });
+        checkBackend();
+      };
+
+      ws.onmessage = (ev) => {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type === 'ready') sessionId = msg.session_id;
+
+        if (msg.type === 'agent_reply') {
+          log('agent', msg.reply || '(empty)');
+          traceEl.textContent = JSON.stringify(msg.trace || [], null, 2);
+          const isDemo = (msg.trace || []).some(t => t.type === 'demo_mode');
+          agentMode.textContent = isDemo ? 'Agent: demo (add API key)' : 'Agent: AI + tools';
+          agentMode.className = 'badge ' + (isDemo ? 'warn' : 'ok');
+          if (activeTurn) activeTurn.turnId = msg.turn_id;
+          if (msg.reply) speak(msg.reply, msg.language, msg.turn_id, msg.server_agent_ms);
+        }
+
+        if (msg.type === 'agent_error' || msg.type === 'error') {
+          log('sys', msg.message || msg.detail || 'Error');
+        }
+
+        if (msg.type === 'latency') {
+          if (activeTurn && activeTurn.turnId === msg.turn_id) activeTurn.serverLatency = msg;
+          else latEl.textContent = JSON.stringify(msg, null, 2);
+        }
+
+        if (msg.type === 'outbound_ready') {
+          log('sys', 'Outbound: ' + (msg.opening_prompt || ''));
+          speak(msg.opening_prompt, $('langPref').value, msg.session_id, null);
+        }
+      };
+
+      ws.onclose = () => {
+        connected = false;
+        setUiEnabled(false);
+        stopMic();
+        connStatus.textContent = 'Disconnected';
+        connStatus.className = 'badge warn';
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(connect, 2500);
+      };
+    }
+
+    function showLatency(merged) {
+      latEl.textContent = JSON.stringify(merged, null, 2);
+      latBadge.textContent = merged.within_target_450ms ? '≤450ms' : '>450ms';
+      latBadge.className = 'badge ' + (merged.within_target_450ms ? 'ok' : 'warn');
+    }
+
+    function speak(text, lang, turnId, serverAgentMs) {
+      if (!text || !window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      const map = { en: 'en-IN', hi: 'hi-IN', ta: 'ta-IN' };
+      u.lang = map[lang] || 'en-IN';
+      u.onstart = () => {
+        if (!activeTurn || activeTurn.turnId !== turnId) return;
+        const e2e = performance.now() - activeTurn.speechEndMs;
+        const agentMs = serverAgentMs ?? null;
+        showLatency({
+          turn_id: turnId,
+          e2e_ms: Math.round(e2e),
+          stt_ms: Math.round(activeTurn.sttMs),
+          agent_ms: agentMs != null ? Math.round(agentMs) : null,
+          tts_ms: agentMs != null ? Math.max(0, Math.round(e2e - agentMs)) : null,
+          within_target_450ms: e2e < 450,
+          target_ms: 450,
+        });
+      };
+      window.speechSynthesis.speak(u);
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let accumulated = '';
+
+    function sendVoiceTranscript(text) {
+      if (!text.trim()) {
+        log('sys', 'No speech detected — try again or use Send text.');
+        return;
+      }
+      const speechEndMs = performance.now();
+      const sttMs = listenStartMs > 0 ? speechEndMs - listenStartMs : 0;
+      activeTurn = { speechEndMs, sttMs, turnId: null, serverLatency: null };
+      log('you', text);
+      liveText.textContent = '';
+      sendWs({ type: 'user_text', text: text.trim(), client_stt_ms: Math.round(sttMs), language: $('langPref').value });
+    }
+
+    function stopMic() {
+      if (!recognition) return;
+      setMicUi(false);
+      try { recognition.stop(); } catch (_) {}
+    }
+
+    function startMic() {
+      if (!micSupported || !connected) return;
+      accumulated = '';
+      liveText.textContent = 'Listening… speak now';
+      listenStartMs = performance.now();
+      setMicUi(true);
+      const lang = $('langPref').value;
+      recognition.lang = { en: 'en-IN', hi: 'hi-IN', ta: 'ta-IN' }[lang] || 'en-IN';
+      try {
+        recognition.start();
+      } catch (err) {
+        setMicUi(false);
+        log('sys', 'Mic start failed: ' + err.message + ' — wait 1s and tap again.');
+      }
+    }
+
+    if (!SpeechRecognition) {
+      micHint.textContent = 'Voice needs Chrome or Edge on http://127.0.0.1:3000. Use Send text meanwhile.';
+      btnMic.disabled = true;
+    } else {
+      micSupported = true;
+      recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      recognition.onresult = (e) => {
+        let interim = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const t = e.results[i][0].transcript;
+          if (e.results[i].isFinal) accumulated += t;
+          else interim += t;
+        }
+        liveText.textContent = (accumulated + interim).trim() || 'Listening…';
+      };
+
+      recognition.onerror = (e) => {
+        if (e.error === 'not-allowed') {
+          log('sys', 'Microphone blocked — click lock icon in address bar → Allow mic.');
+          stopMic();
+        } else if (e.error === 'no-speech') {
+          liveText.textContent = 'No speech heard — tap mic and speak louder.';
+          stopMic();
+        } else if (e.error !== 'aborted') {
+          log('sys', 'Speech: ' + e.error);
+          stopMic();
+        }
+      };
+
+      recognition.onend = () => {
+        if (wantMicOn) {
+          try { recognition.start(); } catch (_) {}
+          return;
+        }
+        const text = accumulated.trim();
+        if (text) sendVoiceTranscript(text);
+        else if (listenStartMs) liveText.textContent = '';
+      };
+
+      micHint.textContent = 'Tap 🎤 to start · speak · tap ⏹ to send. (Or hold button — release to send.)';
+    }
+
+    btnMic.addEventListener('click', () => {
+      if (!micSupported) return;
+      if (wantMicOn) stopMic();
+      else startMic();
+    });
+
+    btnMic.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || !micSupported) return;
+      btnMic._holdTimer = setTimeout(() => {
+        if (!wantMicOn) startMic();
+        btnMic._holding = true;
+      }, 400);
+    });
+    btnMic.addEventListener('mouseup', () => {
+      clearTimeout(btnMic._holdTimer);
+      if (btnMic._holding) {
+        btnMic._holding = false;
+        stopMic();
+      }
+    });
+
+    $('btnBargeIn').onclick = () => {
+      window.speechSynthesis.cancel();
+      sendWs({ type: 'barge_in' });
+      log('sys', '[interrupt]');
+    };
+
+    $('btnOutbound').onclick = () => {
+      sendWs({
+        type: 'outbound_start',
+        payload: {
+          patient_id: $('patientId').value,
+          phone: '9876543210',
+          language: $('langPref').value,
+          appointment: { doctor: 'Dr. Priya Sharma', starts_at: '2026-05-22T10:00:00+00:00' },
+        },
+      });
+    };
+
+    function sendTextTurn() {
+      const text = $('textInput').value.trim();
+      if (!text) return;
+      activeTurn = { speechEndMs: performance.now(), sttMs: 0, turnId: null, serverLatency: null };
+      log('you', text);
+      sendWs({ type: 'user_text', text, client_stt_ms: 0, language: $('langPref').value });
+      $('textInput').value = '';
+    }
+
+    $('btnText').onclick = sendTextTurn;
+    $('textInput').onkeydown = (e) => { if (e.key === 'Enter') sendTextTurn(); };
+
+    connect();
+  </script>
+</body>
+</html>

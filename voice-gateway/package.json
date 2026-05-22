@@ -1,0 +1,25 @@
+{
+  "name": "clinical-voice-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc",
+    "client": "echo UI is included in npm run dev — open http://127.0.0.1:3000"
+  },
+  "dependencies": {
+    "clinical-voice-agent": "file:..",
+    "express": "^4.21.1",
+    "uuid": "^11.0.3",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.9.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
