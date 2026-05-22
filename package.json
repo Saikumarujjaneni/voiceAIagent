@@ -1,15 +1,25 @@
 {
-  "name": "clinical-voice-agent",
+  "name": "clinical-voice-gateway",
   "version": "1.0.0",
   "private": true,
-  "description": "Root scripts — run npm commands from this folder or from voice-gateway/",
+  "type": "module",
   "scripts": {
-    "install:all": "npm install --prefix voice-gateway",
-    "stop": "powershell -ExecutionPolicy Bypass -File scripts/stop-ports.ps1",
-    "backend": "powershell -ExecutionPolicy Bypass -File scripts/start-backend.ps1",
-    "dev": "npm run dev --prefix voice-gateway",
-    "client": "npm run dev",
-    "ui": "npm run dev",
-    "build": "npm run build --prefix voice-gateway"
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc",
+    "client": "echo UI is included in npm run dev — open http://127.0.0.1:3000"
+  },
+  "dependencies": {
+    "clinical-voice-agent": "file:..",
+    "express": "^4.21.1",
+    "uuid": "^11.0.3",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.9.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
   }
 }
